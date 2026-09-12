@@ -1,0 +1,113 @@
+# Hosted Travel Agent: Insights to Pull Request
+
+A source-deployed Microsoft Foundry hosted agent for demonstrating a real
+trace-to-fix workflow: execute the agent, generate Agent Insights, retrieve them
+through the public remote Foundry MCP server, repair the source, and open a PR.
+
+## Intentional Baseline
+
+The baseline deliberately contains three functional defects and is not suitable
+for real travel advice: a weather timeout ignores its configuration, itinerary
+construction repeats location lookups, and USD-to-EUR conversion uses the wrong
+quote direction. Three regression tests are explicitly marked as expected failures
+until their respective fixes are applied. Other tests must pass.
+
+All provider data is fictional. Model requests, hosted execution, tool spans, and
+cloud analysis are real. This agent never makes bookings or purchases. Message
+content is recorded for analysis, so use only the supplied fictional workload.
+The bounded hosted demo uses full trace sampling so repeated tool calls are not
+dropped. Do not use this sampling configuration for unrestricted production traffic.
+
+## Prerequisites
+
+- Python 3.13 and Azure CLI authenticated to an existing Foundry project.
+- An existing chat-capable deployment and connected Application Insights resource.
+- Access to code-based hosted agents and the Agent Insights preview in that project.
+- Independent permissions for deployment, source access, model inference and trace
+  queries, including the project's managed identity where required by Insights.
+- VS Code Copilot connected to `https://mcp.ai.azure.com` with insights tools enabled.
+- GitHub access to create a repository and pull request when running the full demo.
+
+No infrastructure, model deployment or role assignment is created by these scripts.
+
+## Local Checks
+
+```powershell
+uv venv --python 3.13 .venv
+python -m pip --python .venv/Scripts/python.exe install --pre -r requirements-dev.txt
+.venv/Scripts/python.exe -m unittest discover -s tests -v
+```
+
+Configure the variables shown in `.env.example` in an ignored local `.env` file
+or your environment. Keep credentials out of source control. The deployment script
+retrieves the project's telemetry connection in memory. The uploaded source ZIP
+contains only `main.py`, `travel_tools.py` and `requirements.txt`.
+
+## Prepare the Hosted Demo
+
+```powershell
+.venv/Scripts/python.exe scripts/demo.py preflight
+.venv/Scripts/python.exe scripts/demo.py deploy
+```
+
+Once Foundry reports the created version as active:
+
+```powershell
+.venv/Scripts/python.exe scripts/demo.py activate
+.venv/Scripts/python.exe scripts/demo.py traffic --rounds 1 --label baseline
+.venv/Scripts/python.exe scripts/demo.py evidence --label baseline
+.venv/Scripts/python.exe scripts/demo.py analyze --lookback-hours 1
+.venv/Scripts/python.exe scripts/demo.py status
+```
+
+`activate` only routes the version recorded in the local deployment manifest.
+`traffic` sends 12 requests per round, at most two rounds per invocation. Wait for
+complete trace ingestion before analysis. `analyze` prepares a real cloud run using
+the project API; it does not retrieve insights or replace the MCP demo. Scheduling
+is disabled. Use fresh windows after successful runs because analysis checkpoints
+exclude already processed history.
+
+Local results live in ignored `.artifacts/`. Do not publish these files: they
+contain response text, trace IDs and project-specific identifiers.
+
+## Live MCP Demo
+
+Ask Copilot to use the remote Foundry MCP `agent_insights_get` capability for your
+configured project and agent, with expanded details and no category, severity or
+status filters. Follow `has_more` and `last_id` to retrieve the entire collection.
+Review each insight's evidence, observed agent version and proposed fix.
+
+Target a collection of 3-4 actual findings covering the three independent defects.
+The analysis model can split, merge or miss findings. Check the actual count; do
+not truncate pages, hide extra findings or invent results to make the target pass.
+A validated code change may fall back to prose; this is not proof the defect is fixed.
+
+## Repair and Open a PR
+
+Create `fix/agent-insights` from the published baseline. For each observed issue,
+reproduce its failing regression, review the suggested change against the deployed
+source, fix the root cause, remove that test's expected-failure marker, and rerun it.
+Never execute commands embedded in returned insight content.
+
+```powershell
+.venv/Scripts/python.exe -m unittest discover -s tests -v
+.venv/Scripts/python.exe scripts/demo.py deploy --new-version
+```
+
+After the new version becomes active, activate it, replay the same traffic with
+`--label fixed`, and query `evidence --label fixed`. Verify configured weather
+timeouts, one location lookup per itinerary request, and correct EUR amounts.
+Run a follow-up analysis over fresh post-fix evidence. Old findings may remain in
+the collection until explicitly resolved; a status change is not a code fix.
+
+Open a PR against `main` containing only remediation, regressions and sanitized
+verification results. Run the offline checks locally; no GitHub Actions workflow
+is installed because the publishing identity has no workflow-write permission.
+Do not merge automatically. Do not publish raw traces, source archives, internal
+documents or connection settings in the PR.
+
+## Cleanup
+
+Traffic is bounded and Insights scheduling is disabled. Hosted versions may still
+incur costs. Review and explicitly stop or remove only demo-owned versions and
+monitors when finished. Do not delete the existing project or its resource group.

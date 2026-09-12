@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+.venv/
+.artifacts/
+.azure/
+__pycache__/
+*.py[cod]
+*.zip
+*.log
+.pytest_cache/

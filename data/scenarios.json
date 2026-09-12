@@ -1,0 +1,14 @@
+[
+  {"id": "weather-lisbon", "family": "weather", "prompt": "What is the demo weather in Lisbon? Use the weather provider."},
+  {"id": "weather-vienna", "family": "weather", "prompt": "Check the demo weather in Vienna using the provider."},
+  {"id": "weather-stockholm", "family": "weather", "prompt": "Please look up Stockholm weather in the fictional provider."},
+  {"id": "itinerary-lisbon", "family": "itinerary", "prompt": "Build a 5-day demo itinerary in Lisbon using the itinerary tool."},
+  {"id": "itinerary-vienna", "family": "itinerary", "prompt": "Use the itinerary tool to plan 6 days in Vienna."},
+  {"id": "itinerary-stockholm", "family": "itinerary", "prompt": "Create a 7-day Stockholm demo itinerary using the tool."},
+  {"id": "budget-120", "family": "budget", "prompt": "Convert my USD 120.00 travel budget to EUR with the budget tool. Include the provider's quote and converted amount."},
+  {"id": "budget-240", "family": "budget", "prompt": "Use the budget provider to convert USD 240.00 to EUR. Show the source amount, FX quote and provider result."},
+  {"id": "budget-600", "family": "budget", "prompt": "Convert USD 600.00 to EUR using the budget tool, reporting its rate and converted amount."},
+  {"id": "control-packing", "family": "control", "prompt": "Suggest three essentials to pack for a city break. No provider lookup needed."},
+  {"id": "control-checklist", "family": "control", "prompt": "Give a short pre-trip checklist without calling any tools."},
+  {"id": "control-greeting", "family": "control", "prompt": "Hello. Briefly introduce yourself; do not call any tools."}
+]
