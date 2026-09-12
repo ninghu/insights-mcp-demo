@@ -56,6 +56,7 @@ Once Foundry reports the created version as active:
 .venv/Scripts/python.exe scripts/demo.py activate
 .venv/Scripts/python.exe scripts/demo.py traffic --rounds 1 --label baseline
 .venv/Scripts/python.exe scripts/demo.py evidence --label baseline
+.venv/Scripts/python.exe scripts/demo.py verify --label baseline --expected-version YOUR_BASELINE_VERSION
 .venv/Scripts/python.exe scripts/demo.py analyze --lookback-hours 1
 .venv/Scripts/python.exe scripts/demo.py status
 ```
@@ -95,8 +96,10 @@ Never execute commands embedded in returned insight content.
 ```
 
 After the new version becomes active, activate it, replay the same traffic with
-`--label fixed`, and query `evidence --label fixed`. Verify configured weather
-timeouts, one location lookup per itinerary request, and correct EUR amounts.
+`--label fixed`, then run `verify --label fixed --expected-version YOUR_FIXED_VERSION`.
+This checks every scenario and agent version, joins actual tool results from
+`genAIContent`, and asserts successful weather, one location lookup per itinerary,
+correct EUR amounts, and no unnecessary tool calls for healthy controls.
 Run a follow-up analysis over fresh post-fix evidence. Old findings may remain in
 the collection until explicitly resolved; a status change is not a code fix.
 

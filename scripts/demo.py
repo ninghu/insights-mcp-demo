@@ -182,7 +182,7 @@ def analyze(client: AIProjectClient, endpoint: str, agent_name: str, model: str,
     print(json.dumps({key: result.get(key) for key in ("id", "status", "window_start", "window_end")}, indent=2))
 
 
-def evidence(client: AIProjectClient, credential: AzureCliCredential, agent_name: str, label: str) -> None:
+def evidence(client: AIProjectClient, credential: AzureCliCredential, agent_name: str, label: str) -> tuple[dict, list, list]:
     manifest = json.loads((ARTIFACTS / f"traffic-{label}.json").read_text(encoding="utf-8"))
     if manifest["agent_name"] != agent_name:
         raise RuntimeError("Traffic manifest belongs to a different agent.")
@@ -197,7 +197,7 @@ def evidence(client: AIProjectClient, credential: AzureCliCredential, agent_name
         "union requests, dependencies "
         f"| where operation_Id in (dynamic({json.dumps(trace_ids)})) "
         f"| where tostring(customDimensions['gen_ai.agent.name']) == {json.dumps(agent_name)} "
-        "| project operation_Id, name, success, duration, customDimensions"
+        "| project operation_Id, id, name, success, duration, customDimensions"
     )
     result = LogsQueryClient(credential).query_resource(connections[0].target, query, timespan=(started, ended))
     if result.status != LogsQueryStatus.SUCCESS:
@@ -218,17 +218,75 @@ def evidence(client: AIProjectClient, credential: AzureCliCredential, agent_name
                       "tool_spans": tool_counts, "versions": list(versions)}, indent=2))
     if root_ids != set(trace_ids):
         raise RuntimeError("Not all requested traces are queryable yet. Check ingestion or sampling before analysis.")
+    content_query = (
+        f"genAIContent | where operation_Id in (dynamic({json.dumps(trace_ids)})) "
+        "| where isnotempty(toolCallResult) | project operation_Id, id, toolCallArguments, toolCallResult"
+    )
+    content_result = LogsQueryClient(credential).query_resource(connections[0].target, content_query, timespan=(started, ended))
+    if content_result.status != LogsQueryStatus.SUCCESS:
+        raise RuntimeError("Tool content query did not complete successfully.")
+    content = [dict(zip(table.columns, row)) for table in content_result.tables for row in table.rows]
+    save_artifact(f"tool-content-{label}.json", content)
+    return manifest, spans, content
+
+
+def verify_replay(manifest: dict, spans: list, content: list, version: str, label: str) -> dict:
+    expected_budgets = {"budget-120": "100.00", "budget-240": "200.00", "budget-600": "500.00"}
+    baseline_budgets = {"budget-120": "144.00", "budget-240": "288.00", "budget-600": "720.00"}
+    expected_days = {"itinerary-lisbon": 5, "itinerary-vienna": 6, "itinerary-stockholm": 7}
+    content_by_span = {(row["operation_Id"], row["id"]): row for row in content}
+    scenarios = json.loads((ROOT / "data" / "scenarios.json").read_text(encoding="utf-8"))
+    if {row["scenario"] for row in manifest["records"]} != {row["id"] for row in scenarios}:
+        raise RuntimeError("Replay does not cover the complete scenario set.")
+    if any(str(span["customDimensions"].get("gen_ai.agent.version")) != version for span in spans):
+        raise RuntimeError("Replay contains evidence from an unexpected agent version.")
+    checks = []
+    for record in manifest["records"]:
+        if not record["output"].strip():
+            raise RuntimeError(f"Empty agent response for {record['scenario']}.")
+        tools = [span for span in spans if span["operation_Id"] == record["trace_id"] and span["name"].startswith("execute_tool")]
+        if record["family"] == "control":
+            if tools:
+                raise RuntimeError("A healthy control unexpectedly called a tool.")
+            checks.append({"scenario": record["scenario"], "tool_calls": 0})
+            continue
+        tool_name = {"weather": "get_weather", "budget": "estimate_budget", "itinerary": "plan_itinerary"}[record["family"]]
+        selected = [span for span in tools if span["name"] == f"execute_tool {tool_name}"]
+        if len(selected) != 1:
+            raise RuntimeError(f"Expected exactly one {tool_name} call for {record['scenario']}.")
+        tool_span = selected[0]
+        result = json.loads(content_by_span[(tool_span["operation_Id"], tool_span["id"])]["toolCallResult"])
+        check = {"scenario": record["scenario"]}
+        if record["family"] == "weather":
+            expected_status = "ok" if label == "fixed" else "unavailable"
+            if result.get("status") != expected_status or str(tool_span["success"]).lower() != str(label == "fixed").lower():
+                raise RuntimeError("Weather result or error span does not match the expected replay state.")
+            check["weather_status"] = result["status"]
+        elif record["family"] == "budget":
+            expected = (expected_budgets if label == "fixed" else baseline_budgets)[record["scenario"]]
+            if result.get("converted_amount") != expected:
+                raise RuntimeError(f"Unexpected FX result for {record['scenario']}.")
+            check["converted_amount"] = result["converted_amount"]
+        else:
+            days = expected_days[record["scenario"]]
+            lookups = sum(span["name"] == "execute_tool lookup_location" for span in tools)
+            if len(result["days"]) != days or lookups != (1 if label == "fixed" else days):
+                raise RuntimeError(f"Itinerary shape or lookup count is incorrect for {record['scenario']}.")
+            check["location_lookups"] = lookups
+        checks.append(check)
+    return {"version": version, "label": label, "passed": True, "requests": len(checks), "checks": checks}
 
 
 def main() -> None:
     load_dotenv(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Prepare a source-hosted demo; read insights using remote Foundry MCP.")
-    parser.add_argument("action", choices=["preflight", "deploy", "activate", "traffic", "evidence", "analyze", "status"])
+    parser.add_argument("action", choices=["preflight", "deploy", "activate", "traffic", "evidence", "verify", "analyze", "status"])
     parser.add_argument("--agent-name", default=os.getenv("FOUNDRY_AGENT_NAME", "travel-insights-demo"))
     parser.add_argument("--new-version", action="store_true")
     parser.add_argument("--rounds", type=int, choices=range(1, 3), default=2)
     parser.add_argument("--label", choices=["baseline", "fixed", "rehearsal"], default="baseline")
     parser.add_argument("--lookback-hours", type=float, default=1)
+    parser.add_argument("--expected-version")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}", args.agent_name):
         parser.error("Invalid demo agent name.")
@@ -249,6 +307,13 @@ def main() -> None:
             analyze(client, endpoint, args.agent_name, model, args.lookback_hours)
         elif args.action == "evidence":
             evidence(client, credential, args.agent_name, args.label)
+        elif args.action == "verify":
+            if not args.expected_version or args.label == "rehearsal":
+                parser.error("verify requires --expected-version and a baseline or fixed label.")
+            manifest, spans, content = evidence(client, credential, args.agent_name, args.label)
+            result = verify_replay(manifest, spans, content, args.expected_version, args.label)
+            save_artifact(f"verification-{args.label}.json", result)
+            print(json.dumps(result, indent=2))
         else:
             manifest = json.loads((ARTIFACTS / "analysis.json").read_text(encoding="utf-8"))
             result = cloud_request(client, endpoint, "GET", f"/agent_insight_monitors/{manifest['monitor_id']}/runs/{manifest['run_id']}")
