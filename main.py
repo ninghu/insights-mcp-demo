@@ -7,7 +7,6 @@ from langchain.agents.middleware import ToolCallLimitMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import tool
 from langchain_azure_ai.agents.hosting import ResponsesHostServer
-from langchain_azure_ai.callbacks.tracers import enable_auto_tracing
 from langchain_azure_ai.chat_models import AzureAIOpenAIApiChatModel
 from langgraph.graph.state import CompiledStateGraph
 
@@ -62,12 +61,7 @@ def build_graph(model: BaseChatModel | None = None) -> CompiledStateGraph:
 
 def build_server() -> ResponsesHostServer:
     load_dotenv()
-    server = ResponsesHostServer(build_graph())
-    enable_auto_tracing(
-        auto_configure_azure_monitor=False,
-        enable_content_recording=os.getenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "true").lower() not in {"false", "0"},
-    )
-    return server
+    return ResponsesHostServer(build_graph())
 
 
 if __name__ == "__main__":

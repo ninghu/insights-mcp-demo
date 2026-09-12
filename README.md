@@ -14,9 +14,10 @@ request history or cross-request location cache inside the graph.
 
 The official `langchain_azure_ai.agents.hosting.ResponsesHostServer` exposes the
 same Foundry `/responses` protocol. `AzureAIOpenAIApiChatModel` uses the existing
-project and model with Entra credentials. `enable_auto_tracing()` emits LangGraph,
-model and tool spans through the host's existing Azure Monitor exporter; it does
-not create a second telemetry provider. Source deployment still runs `python main.py`.
+project and model with Entra credentials. The host's `microsoft-opentelemetry`
+distribution instruments LangChain/LangGraph and exports to Azure Monitor. Do not
+also call `enable_auto_tracing()`: registering both tracers duplicates tool spans.
+Source deployment still runs `python main.py`.
 
 The current remediation branch uses LangGraph and fixes all three business defects.
 The baseline on `main` and its previously generated insights used Agent Framework.

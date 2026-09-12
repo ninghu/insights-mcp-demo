@@ -6,8 +6,12 @@ from unittest.mock import patch
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.graph.state import CompiledStateGraph
+from opentelemetry import trace
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from starlette.testclient import TestClient
 
-from main import build_graph
+from main import build_graph, build_server
 from travel_tools import TravelTools, estimate_budget
 
 
@@ -62,6 +66,27 @@ class GraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outputs["get_weather"]["status"], "ok")
         self.assertEqual(len(outputs["plan_itinerary"]["days"]), 2)
         self.assertEqual(result["messages"][-1].content, "Trip prepared.")
+
+
+class HostingTests(unittest.TestCase):
+    def test_responses_host_records_each_tool_once(self):
+        tool_call = AIMessage(content="", tool_calls=[{
+            "name": "estimate_budget", "args": {"amount_usd": "120.00"}, "id": "budget-host-1", "type": "tool_call",
+        }])
+        graph = build_graph(ScriptedChatModel(responses=[tool_call, AIMessage(content="EUR 100.00")]))
+        with patch("main.build_graph", return_value=graph), patch("main.load_dotenv"):
+            server = build_server()
+        exporter = InMemorySpanExporter()
+        trace.get_tracer_provider().add_span_processor(SimpleSpanProcessor(exporter))
+        with TestClient(server.app) as client:
+            response = client.post("/responses", json={"input": "Convert USD 120 to EUR.", "stream": False, "store": False})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "completed")
+        tool_spans = [span for span in exporter.get_finished_spans()
+                      if span.attributes.get("gen_ai.operation.name") == "execute_tool"
+                      and span.attributes.get("gen_ai.tool.name") == "estimate_budget"]
+        self.assertEqual(len(tool_spans), 1)
+        self.assertEqual(tool_spans[0].attributes["gen_ai.tool.call.id"], "budget-host-1")
 
 
 class TravelTests(unittest.IsolatedAsyncioTestCase):
