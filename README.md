@@ -1,8 +1,27 @@
-# Hosted Travel Agent: Insights to Pull Request
+# LangGraph Hosted Travel Agent: Insights to Pull Request
 
-A source-deployed Microsoft Foundry hosted agent for demonstrating a real
+A source-deployed LangGraph agent on Microsoft Foundry for demonstrating a real
 trace-to-fix workflow: execute the agent, generate Agent Insights, retrieve them
 through the public remote Foundry MCP server, repair the source, and open a PR.
+
+## LangGraph Runtime
+
+`main.py` builds a real `CompiledStateGraph` using `langchain.agents.create_agent`.
+The graph runs a model -> tools -> model loop with three local tools: `get_weather`,
+`plan_itinerary`, and `estimate_budget`. Run-scoped middleware permits each tool
+once per request and a recursion limit bounds graph execution. There is no shared
+request history or cross-request location cache inside the graph.
+
+The official `langchain_azure_ai.agents.hosting.ResponsesHostServer` exposes the
+same Foundry `/responses` protocol. `AzureAIOpenAIApiChatModel` uses the existing
+project and model with Entra credentials. `enable_auto_tracing()` emits LangGraph,
+model and tool spans through the host's existing Azure Monitor exporter; it does
+not create a second telemetry provider. Source deployment still runs `python main.py`.
+
+The current remediation branch uses LangGraph and fixes all three business defects.
+The baseline on `main` and its previously generated insights used Agent Framework.
+Historical insights retain their observed baseline version; migrating the runtime
+does not relabel old traces as LangGraph executions or reset the monitor.
 
 ## Intentional Baseline
 
@@ -39,6 +58,10 @@ uv venv --python 3.13 .venv
 python -m pip --python .venv/Scripts/python.exe install --pre -r requirements-dev.txt
 .venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
+
+The offline suite includes scripted-model graph tests for sync/async tool execution,
+duplicate-call limits and request isolation, in addition to the business regressions.
+It does not require Azure credentials or make model calls.
 
 Configure the variables shown in `.env.example` in an ignored local `.env` file
 or your environment. Keep credentials out of source control. The deployment script
