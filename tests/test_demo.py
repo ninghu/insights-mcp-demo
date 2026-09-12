@@ -5,7 +5,6 @@ from travel_tools import TravelTools, estimate_budget
 
 
 class TravelTests(unittest.IsolatedAsyncioTestCase):
-    @unittest.expectedFailure
     async def test_weather_respects_configured_timeout(self):
         self.assertEqual((await TravelTools(timeout_seconds=0.5).get_weather("Lisbon"))["status"], "ok")
 
@@ -32,9 +31,10 @@ class TravelTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BudgetTests(unittest.TestCase):
-    @unittest.expectedFailure
     def test_usd_to_eur_uses_quote_direction(self):
-        self.assertEqual(estimate_budget("120.00")["converted_amount"], "100.00")
+        for amount, expected in (("120.00", "100.00"), ("240.00", "200.00"), ("600.00", "500.00"), ("1.01", "0.84"), ("0", "0.00")):
+            with self.subTest(amount=amount):
+                self.assertEqual(estimate_budget(amount)["converted_amount"], expected)
 
     def test_budget_rejects_invalid_amounts(self):
         for amount in ("-1", "NaN", "Infinity"):
