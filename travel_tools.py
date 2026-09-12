@@ -41,10 +41,10 @@ class TravelTools:
     async def plan_itinerary(self, city: str, days: int = 3) -> dict:
         if not 1 <= days <= 7:
             raise ValueError("Demo trips must last between one and seven days.")
-        locations = [await self.lookup_location(city) for _day in range(days)]
+        location = await self.lookup_location(city)
         return {
             "city": city,
-            "days": [{"day": index + 1, "location": location} for index, location in enumerate(locations)],
+            "days": [{"day": index + 1, "location": dict(location)} for index in range(days)],
             "fictional": True,
         }
 

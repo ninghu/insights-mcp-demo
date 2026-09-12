@@ -12,7 +12,6 @@ class TravelTests(unittest.IsolatedAsyncioTestCase):
         tools = TravelTools(timeout_seconds=0.001)
         self.assertEqual((await tools.get_weather("Lisbon"))["status"], "unavailable")
 
-    @unittest.expectedFailure
     async def test_itinerary_looks_up_same_city_once(self):
         tools = TravelTools()
         itinerary = await tools.plan_itinerary("Lisbon", 3)
@@ -24,6 +23,14 @@ class TravelTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(first.plan_itinerary("Lisbon", 1), second.plan_itinerary("Vienna", 1))
         self.assertEqual(first.location_calls, 1)
         self.assertEqual(second.location_calls, 1)
+
+    async def test_itinerary_days_and_requests_have_independent_locations(self):
+        tools = TravelTools()
+        itinerary = await tools.plan_itinerary("Lisbon", 2)
+        itinerary["days"][0]["location"]["city"] = "changed"
+        self.assertEqual(itinerary["days"][1]["location"]["city"], "lisbon")
+        second = await tools.plan_itinerary("Vienna", 1)
+        self.assertEqual(second["days"][0]["location"]["city"], "vienna")
 
     async def test_itinerary_bounds_work(self):
         with self.assertRaises(ValueError):
