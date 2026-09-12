@@ -17,6 +17,8 @@ cloud analysis are real. This agent never makes bookings or purchases. Message
 content is recorded for analysis, so use only the supplied fictional workload.
 The bounded hosted demo uses full trace sampling so repeated tool calls are not
 dropped. Do not use this sampling configuration for unrestricted production traffic.
+Each fictional location-provider call takes one second of real elapsed time so
+redundant requests have measurable latency; span durations are not synthesized.
 
 ## Prerequisites
 

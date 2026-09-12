@@ -33,7 +33,7 @@ class TravelTools:
         }
         with trace.get_tracer("travel-demo").start_as_current_span("execute_tool lookup_location", attributes=attributes) as span:
             self.location_calls += 1
-            await asyncio.sleep(0.04)
+            await asyncio.sleep(1.0)
             result = {"city": city.strip().casefold(), "country": "Demo country", "fictional": True}
             span.set_attribute("gen_ai.tool.call.result", json.dumps(result))
             return result
