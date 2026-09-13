@@ -17,7 +17,7 @@ class TravelTools:
 
     async def get_weather(self, city: str) -> dict:
         try:
-            result = await asyncio.wait_for(self._weather_provider(city), timeout=0.01)
+            result = await asyncio.wait_for(self._weather_provider(city), timeout=self.timeout_seconds)
             return {"status": "ok", **result}
         except TimeoutError:
             span = trace.get_current_span()
@@ -41,10 +41,10 @@ class TravelTools:
     async def plan_itinerary(self, city: str, days: int = 3) -> dict:
         if not 1 <= days <= 7:
             raise ValueError("Demo trips must last between one and seven days.")
-        locations = [await self.lookup_location(city) for _day in range(days)]
+        location = await self.lookup_location(city)
         return {
             "city": city,
-            "days": [{"day": index + 1, "location": dict(location)} for index, location in enumerate(locations)],
+            "days": [{"day": day, "location": dict(location)} for day in range(1, days + 1)],
             "fictional": True,
         }
 
@@ -54,7 +54,7 @@ def estimate_budget(amount_usd: str) -> dict[str, str]:
     if not amount.is_finite() or amount < 0:
         raise ValueError("Budget must be a finite non-negative amount.")
     usd_per_eur = Decimal("1.20")
-    converted = (amount * usd_per_eur).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    converted = (amount / usd_per_eur).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return {
         "source_amount": str(amount),
         "source_currency": "USD",

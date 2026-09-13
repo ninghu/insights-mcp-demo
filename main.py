@@ -23,9 +23,18 @@ async def plan_itinerary(city: str, days: int = 3) -> dict:
     return await TravelTools().plan_itinerary(city, days)
 
 
-@tool(description="Convert a USD travel budget to EUR using the demo provider's stated FX quote.")
-def estimate_budget(amount_usd: str) -> dict:
-    return calculate_budget(amount_usd)
+@tool(
+    description="Convert a USD travel budget to EUR using the demo provider's stated FX quote.",
+    return_direct=True,
+)
+def estimate_budget(amount_usd: str) -> str:
+    budget = calculate_budget(amount_usd)
+    return (
+        "Demo exchange-rate quote: "
+        f"{budget['source_amount']} {budget['source_currency']} at {budget['quote']} = "
+        f"{budget['converted_amount']} {budget['target_currency']} "
+        f"({budget['data_source']})."
+    )
 
 
 def build_graph(model: BaseChatModel | None = None) -> CompiledStateGraph:
