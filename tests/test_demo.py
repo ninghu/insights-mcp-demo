@@ -12,6 +12,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from starlette.testclient import TestClient
 
 from main import build_graph, build_server
+from scripts.demo import verify_replay
 from travel_tools import TravelTools, estimate_budget
 
 
@@ -94,6 +95,34 @@ class HostingTests(unittest.TestCase):
                       and span.attributes.get("gen_ai.tool.name") == "estimate_budget"]
         self.assertEqual(len(tool_spans), 1)
         self.assertEqual(tool_spans[0].attributes["gen_ai.tool.call.id"], "budget-host-1")
+
+
+class ReplayVerificationTests(unittest.TestCase):
+    def verify_weather(self, result, span_success, label):
+        manifest = {"records": [{"scenario": "weather-test", "family": "weather", "trace_id": "test-trace", "output": "Weather response."}]}
+        spans = [{"operation_Id": "test-trace", "id": "test-span", "name": "execute_tool get_weather",
+                  "success": span_success, "customDimensions": {"gen_ai.agent.version": "7"}}]
+        content = [{"operation_Id": "test-trace", "id": "test-span", "toolCallResult": json.dumps(result)}]
+        with patch("pathlib.Path.read_text", return_value=json.dumps([{"id": "weather-test"}])):
+            return verify_replay(manifest, spans, content, "7", label)
+
+    def test_baseline_requires_explicit_provider_timeout(self):
+        for span_success in ("True", "False"):
+            with self.subTest(span_success=span_success):
+                result = self.verify_weather({"status": "unavailable", "error": "weather_provider_timeout"}, span_success, "baseline")
+                self.assertTrue(result["passed"])
+                self.assertEqual(result["checks"][0]["span_success"], span_success == "True")
+        with self.assertRaises(RuntimeError):
+            self.verify_weather({"status": "unavailable"}, "True", "baseline")
+
+    def test_fixed_weather_rejects_handled_provider_failure(self):
+        with self.assertRaises(RuntimeError):
+            self.verify_weather({"status": "unavailable", "error": "weather_provider_timeout"}, "True", "fixed")
+
+    def test_fixed_weather_requires_successful_span_and_result(self):
+        with self.assertRaises(RuntimeError):
+            self.verify_weather({"status": "ok"}, "False", "fixed")
+        self.assertTrue(self.verify_weather({"status": "ok"}, "True", "fixed")["passed"])
 
 
 class TravelTests(unittest.IsolatedAsyncioTestCase):

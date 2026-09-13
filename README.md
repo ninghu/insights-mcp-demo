@@ -112,6 +112,12 @@ After a monitor reset, calculate `--lookback-hours` from the new baseline traffi
 include older repaired or Agent Framework traces because reset clears the checkpoint.
 Reset clears overview and the current insight collection; it preserves run history.
 
+The LangGraph tracer can report a successful Python tool call when the tool handles
+a timeout and returns an error object. Baseline verification therefore requires the
+actual `status=unavailable` and `error=weather_provider_timeout` tool result, and
+reports the raw span success separately. Fixed verification requires a successful
+span and an `ok` result without a provider error.
+
 Local results live in ignored `.artifacts/`. Do not publish these files: they
 contain response text, trace IDs and project-specific identifiers.
 

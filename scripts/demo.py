@@ -259,9 +259,16 @@ def verify_replay(manifest: dict, spans: list, content: list, version: str, labe
         check = {"scenario": record["scenario"]}
         if record["family"] == "weather":
             expected_status = "ok" if label == "fixed" else "unavailable"
-            if result.get("status") != expected_status or str(tool_span["success"]).lower() != str(label == "fixed").lower():
-                raise RuntimeError("Weather result or error span does not match the expected replay state.")
+            if result.get("status") != expected_status:
+                raise RuntimeError("Weather result does not match the expected replay state.")
+            if label == "fixed":
+                if result.get("error") or str(tool_span["success"]).lower() != "true":
+                    raise RuntimeError("Fixed weather request still reports an error.")
+            elif result.get("error") != "weather_provider_timeout":
+                raise RuntimeError("Baseline weather result is missing the expected provider timeout.")
             check["weather_status"] = result["status"]
+            check["span_success"] = str(tool_span["success"]).lower() == "true"
+            check["provider_error"] = result.get("error")
         elif record["family"] == "budget":
             expected = (expected_budgets if label == "fixed" else baseline_budgets)[record["scenario"]]
             if result.get("converted_amount") != expected:
