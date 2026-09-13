@@ -27,34 +27,53 @@ class GraphTests(unittest.IsolatedAsyncioTestCase):
             "name": "estimate_budget", "args": {"amount_usd": "120.00"}, "id": call_id, "type": "tool_call",
         }])
 
-    async def test_graph_executes_model_tool_model_cycle(self):
-        model = ScriptedChatModel(responses=[self.budget_call("budget-1"), AIMessage(content="EUR 100.00")])
+    def weather_call(self, call_id: str) -> AIMessage:
+        return AIMessage(content="", tool_calls=[{
+            "name": "get_weather", "args": {"city": "Lisbon"}, "id": call_id, "type": "tool_call",
+        }])
+
+    async def test_budget_tool_returns_direct_response(self):
+        model = ScriptedChatModel(responses=[self.budget_call("budget-1")])
         graph = build_graph(model)
         self.assertIsInstance(graph, CompiledStateGraph)
         self.assertIn("tools", graph.get_graph().nodes)
-        with patch("main.calculate_budget", return_value={"converted_amount": "100.00"}) as calculate:
+        budget = {
+            "source_amount": "120.00",
+            "source_currency": "USD",
+            "target_currency": "EUR",
+            "quote": "1 EUR = 1.20 USD",
+            "converted_amount": "100.00",
+            "data_source": "fictional demo exchange-rate provider",
+        }
+        with patch("main.calculate_budget", return_value=budget) as calculate:
             result = await graph.ainvoke({"messages": [("user", "Convert USD 120 to EUR.")]})
         calculate.assert_called_once_with("120.00")
         outputs = [message for message in result["messages"] if isinstance(message, ToolMessage)]
         self.assertEqual(len(outputs), 1)
-        self.assertEqual(json.loads(outputs[0].content)["converted_amount"], "100.00")
-        self.assertEqual(result["messages"][-1].content, "EUR 100.00")
+        self.assertEqual(
+            outputs[0].content,
+            "Demo exchange-rate quote: 120.00 USD at 1 EUR = 1.20 USD = "
+            "100.00 EUR (fictional demo exchange-rate provider).",
+        )
+        self.assertIs(result["messages"][-1], outputs[0])
 
     async def test_graph_blocks_repeated_tool_execution(self):
-        model = ScriptedChatModel(responses=[self.budget_call("budget-1"), self.budget_call("budget-2")])
+        model = ScriptedChatModel(responses=[self.weather_call("weather-1"), self.weather_call("weather-2")])
         graph = build_graph(model)
-        with patch("main.calculate_budget", wraps=estimate_budget) as calculate:
-            result = await graph.ainvoke({"messages": [("user", "Convert USD 120 to EUR.")]})
-        self.assertEqual(calculate.call_count, 1)
+        with patch("main.TravelTools", autospec=True) as tools_factory:
+            tools_factory.return_value.get_weather.return_value = {"status": "ok", "city": "Lisbon"}
+            result = await graph.ainvoke({"messages": [("user", "Check Lisbon weather.")]})
+        tools_factory.return_value.get_weather.assert_awaited_once_with("Lisbon")
         self.assertIsInstance(result["messages"][-1], AIMessage)
 
     async def test_graph_tool_limit_is_per_request(self):
-        model = ScriptedChatModel(responses=[self.budget_call("budget-1"), AIMessage(content="EUR 100.00")])
+        model = ScriptedChatModel(responses=[self.budget_call("budget-1"), self.budget_call("budget-2")])
         graph = build_graph(model)
         with patch("main.calculate_budget", wraps=estimate_budget) as calculate:
             for _request in range(2):
                 result = await graph.ainvoke({"messages": [("user", "Convert USD 120 to EUR.")]})
-                self.assertEqual(result["messages"][-1].content, "EUR 100.00")
+                self.assertIsInstance(result["messages"][-1], ToolMessage)
+                self.assertIn("100.00 EUR", result["messages"][-1].content)
         self.assertEqual(calculate.call_count, 2)
 
     async def test_graph_executes_async_travel_tools(self):
@@ -126,7 +145,6 @@ class ReplayVerificationTests(unittest.TestCase):
 
 
 class TravelTests(unittest.IsolatedAsyncioTestCase):
-    @unittest.expectedFailure
     async def test_weather_respects_configured_timeout(self):
         self.assertEqual((await TravelTools(timeout_seconds=0.5).get_weather("Lisbon"))["status"], "ok")
 
@@ -134,7 +152,6 @@ class TravelTests(unittest.IsolatedAsyncioTestCase):
         tools = TravelTools(timeout_seconds=0.001)
         self.assertEqual((await tools.get_weather("Lisbon"))["status"], "unavailable")
 
-    @unittest.expectedFailure
     async def test_itinerary_looks_up_same_city_once(self):
         tools = TravelTools()
         itinerary = await tools.plan_itinerary("Lisbon", 3)
@@ -161,7 +178,6 @@ class TravelTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BudgetTests(unittest.TestCase):
-    @unittest.expectedFailure
     def test_usd_to_eur_uses_quote_direction(self):
         for amount, expected in (("120.00", "100.00"), ("240.00", "200.00"), ("600.00", "500.00"), ("1.01", "0.84"), ("0", "0.00")):
             with self.subTest(amount=amount):
