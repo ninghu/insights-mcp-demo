@@ -4,6 +4,19 @@ A source-deployed LangGraph agent on Microsoft Foundry for demonstrating a real
 trace-to-fix workflow: execute the agent, generate Agent Insights, retrieve them
 through the public remote Foundry MCP server, repair the source, and open a PR.
 
+## Recording Starting Point
+
+`main` is the intentionally defective **LangGraph baseline**, not the repaired
+agent. Keep its three business defects in place while preparing and recording the
+insights demo. Do not apply fixes or route to an older repaired hosted version
+until the on-camera remediation step is explicitly requested.
+
+The repaired LangGraph implementation is preserved in merged PR #1 and commit
+`95dd6f9`; hosted v6 is the historical repaired version, not this baseline.
+Deploy the current `main` source as a new immutable version, activate that version,
+then run `traffic --label baseline` and `verify --label baseline --expected-version`
+with the actual new version number. Do not use `--label fixed` during preparation.
+
 ## LangGraph Runtime
 
 `main.py` builds a real `CompiledStateGraph` using `langchain.agents.create_agent`.
@@ -19,10 +32,10 @@ distribution instruments LangChain/LangGraph and exports to Azure Monitor. Do no
 also call `enable_auto_tracing()`: registering both tracers duplicates tool spans.
 Source deployment still runs `python main.py`.
 
-The current remediation branch uses LangGraph and fixes all three business defects.
-The baseline on `main` and its previously generated insights used Agent Framework.
-Historical insights retain their observed baseline version; migrating the runtime
-does not relabel old traces as LangGraph executions or reset the monitor.
+Both this recording baseline and the later remediation use LangGraph. Historical
+insights from earlier Agent Framework or repaired-agent runs are not evidence for
+this baseline. Archive and reset the demo monitor after any active run finishes,
+then generate insights over fresh traffic from the newly deployed baseline only.
 
 ## Intentional Baseline
 
@@ -93,6 +106,11 @@ complete trace ingestion before analysis. `analyze` prepares a real cloud run us
 the project API; it does not retrieve insights or replace the MCP demo. Scheduling
 is disabled. Use fresh windows after successful runs because analysis checkpoints
 exclude already processed history.
+
+After a monitor reset, calculate `--lookback-hours` from the new baseline traffic's
+`started_at` timestamp, with a small start margin. A broad default lookback can
+include older repaired or Agent Framework traces because reset clears the checkpoint.
+Reset clears overview and the current insight collection; it preserves run history.
 
 Local results live in ignored `.artifacts/`. Do not publish these files: they
 contain response text, trace IDs and project-specific identifiers.
